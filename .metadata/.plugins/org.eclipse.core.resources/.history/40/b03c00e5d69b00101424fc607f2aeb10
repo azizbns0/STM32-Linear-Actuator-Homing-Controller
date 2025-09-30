@@ -1,0 +1,155 @@
+/*
+ * homing_hal_stm32.c
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+
+#include "homing_hal.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+// Simulation configuration - adjust these for different behavior
+#define SIM_TOTAL_DISTANCE_UNITS    1000.0f
+#define SIM_LEFT_SWITCH_POS         50.0f
+#define SIM_RIGHT_SWITCH_POS        950.0f
+#define SIM_SPEED_RIGHT             0.5f      // units per ms (moving right)
+#define SIM_SPEED_LEFT              0.4f      // units per ms (moving left - asymmetric)
+
+// Actuator movement states
+typedef enum {
+    ACTUATOR_STOPPED = 0,
+    ACTUATOR_MOVING_LEFT,
+    ACTUATOR_MOVING_RIGHT
+} actuator_state_t;
+
+// Simulation state structure
+static struct {
+    float current_position;         // Current position in units
+    actuator_state_t movement_state;
+    uint32_t last_update_time;
+    bool initialized;
+} sim_state = {0};
+
+// Private function declarations
+static void update_simulation(void);
+static void init_simulation(void);
+
+// HAL Interface Implementation
+
+uint32_t hal_get_tick_ms(void) {
+    return HAL_GetTick();
+}
+
+bool hal_get_left_switch_raw(void) {
+    if (!sim_state.initialized) {
+        init_simulation();
+    }
+    update_simulation();
+    return (sim_state.current_position <= SIM_LEFT_SWITCH_POS);
+}
+
+bool hal_get_right_switch_raw(void) {
+    if (!sim_state.initialized) {
+        init_simulation();
+    }
+    update_simulation();
+    return (sim_state.current_position >= SIM_RIGHT_SWITCH_POS);
+}
+
+void hal_actuator_move_left(void) {
+    if (!sim_state.initialized) {
+        init_simulation();
+    }
+    update_simulation();
+    sim_state.movement_state = ACTUATOR_MOVING_LEFT;
+    sim_state.last_update_time = HAL_GetTick();
+}
+
+void hal_actuator_move_right(void) {
+    if (!sim_state.initialized) {
+        init_simulation();
+    }
+    update_simulation();
+    sim_state.movement_state = ACTUATOR_MOVING_RIGHT;
+    sim_state.last_update_time = HAL_GetTick();
+}
+
+void hal_actuator_stop(void) {
+    if (!sim_state.initialized) {
+        init_simulation();
+    }
+    update_simulation();
+    sim_state.movement_state = ACTUATOR_STOPPED;
+}
+
+void hal_clear_switches(void) {
+    init_simulation();
+    // Start in middle position
+    sim_state.current_position = SIM_TOTAL_DISTANCE_UNITS / 2.0f;
+    sim_state.movement_state = ACTUATOR_STOPPED;
+    sim_state.last_update_time = HAL_GetTick();
+}
+
+// Private function implementations
+
+static void init_simulation(void) {
+    sim_state.current_position = SIM_TOTAL_DISTANCE_UNITS / 2.0f; // Start in middle
+    sim_state.movement_state = ACTUATOR_STOPPED;
+    sim_state.last_update_time = HAL_GetTick();
+    sim_state.initialized = true;
+}
+
+static void update_simulation(void) {
+    uint32_t now = HAL_GetTick();
+    uint32_t elapsed_ms = now - sim_state.last_update_time;
+
+    if (elapsed_ms > 0 && sim_state.movement_state != ACTUATOR_STOPPED) {
+        float distance_moved = 0.0f;
+
+        switch (sim_state.movement_state) {
+            case ACTUATOR_MOVING_RIGHT:
+                distance_moved = SIM_SPEED_RIGHT * (float)elapsed_ms;
+                sim_state.current_position += distance_moved;
+                if (sim_state.current_position > SIM_TOTAL_DISTANCE_UNITS) {
+                    sim_state.current_position = SIM_TOTAL_DISTANCE_UNITS;
+                }
+                break;
+
+            case ACTUATOR_MOVING_LEFT:
+                distance_moved = SIM_SPEED_LEFT * (float)elapsed_ms;
+                sim_state.current_position -= distance_moved;
+                if (sim_state.current_position < 0.0f) {
+                    sim_state.current_position = 0.0f;
+                }
+                break;
+
+            case ACTUATOR_STOPPED:
+            default:
+                // No movement
+                break;
+        }
+
+        sim_state.last_update_time = now;
+    }
+}
+
+// Debug functions (optional - for troubleshooting)
+float hal_sim_get_position(void) {
+    update_simulation();
+    return sim_state.current_position;
+}
+
+bool hal_sim_is_moving(void) {
+    return (sim_state.movement_state != ACTUATOR_STOPPED);
+}
+
+const char* hal_sim_get_movement_state_str(void) {
+    switch (sim_state.movement_state) {
+        case ACTUATOR_STOPPED: return "STOPPED";
+        case ACTUATOR_MOVING_LEFT: return "MOVING_LEFT";
+        case ACTUATOR_MOVING_RIGHT: return "MOVING_RIGHT";
+        default: return "UNKNOWN";
+    }
+}

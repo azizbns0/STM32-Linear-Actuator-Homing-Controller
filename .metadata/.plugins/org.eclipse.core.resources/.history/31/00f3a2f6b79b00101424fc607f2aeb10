@@ -1,0 +1,52 @@
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+
+// Fake actuator state
+static uint32_t move_start = 0;
+static bool moving_left = false;
+static bool moving_right = false;
+static bool left_switch = false;
+static bool right_switch = false;
+
+#define TIME_TO_LEFT   2000   // 2 seconds until left switch
+#define TIME_TO_RIGHT  3000   // 3 seconds until right switch
+
+uint32_t HW_GetTickMs(void) { return HAL_GetTick(); }
+
+bool HW_LeftSwitchRaw(void)  { return left_switch; }
+bool HW_RightSwitchRaw(void) { return right_switch; }
+
+void HW_ActuatorMoveLeft(void) {
+    moving_left = true;
+    moving_right = false;
+    move_start = HAL_GetTick();
+    left_switch = right_switch = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    moving_left = false;
+    moving_right = true;
+    move_start = HAL_GetTick();
+    left_switch = right_switch = false;
+}
+
+void HW_ActuatorStop(void) {
+    moving_left = false;
+    moving_right = false;
+}
+
+// Called periodically from Homing_Step
+void HW_SimulationUpdate(uint32_t now) {
+    if (moving_left) {
+        if ((now - move_start) >= TIME_TO_LEFT) {
+            left_switch = true;
+            moving_left = false;
+        }
+    }
+    if (moving_right) {
+        if ((now - move_start) >= TIME_TO_RIGHT) {
+            right_switch = true;
+            moving_right = false;
+        }
+    }
+}

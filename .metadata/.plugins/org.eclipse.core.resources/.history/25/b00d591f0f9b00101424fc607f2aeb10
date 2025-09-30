@@ -1,0 +1,79 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+// hw_simulation.c
+// A simulation implementation of homing_porting.h so you can test without real actuator.
+// Define HOMING_USE_SIMULATION=1 in your project to use this file.
+
+#include "homing_porting.h"
+#include "hw_simulation.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include <string.h>
+
+// Simulation parameters
+static float sim_pos = 500.0f;         // 0..SIM_MAX_POS
+static const int SIM_MAX_POS = 1000;
+static float sim_v_right = 0.5f;       // units per ms
+static float sim_v_left = 0.5f;
+static bool sim_move_right = false;
+static bool sim_move_left = false;
+static uint32_t sim_last = 0;
+
+// debug - no HAL includes here; HW_GetTickMs must be provided by user mapping to HAL_GetTick()
+uint32_t HW_GetTickMs(void); // forward declaration, implemented by board mapping
+
+void Sim_SetSpeeds(float units_per_ms_right, float units_per_ms_left) {
+    sim_v_right = units_per_ms_right;
+    sim_v_left = units_per_ms_left;
+}
+
+void Sim_SetInitialPos(int pos) {
+    if (pos < 0) pos = 0;
+    if (pos > SIM_MAX_POS) pos = SIM_MAX_POS;
+    sim_pos = (float)pos;
+}
+
+int Sim_GetPosition(void) { return (int)sim_pos; }
+
+// Porting API implementations (simulation)
+bool HW_LeftSwitchRaw(void) {
+    return (sim_pos <= 0.0f);
+}
+bool HW_RightSwitchRaw(void) {
+    return (sim_pos >= (float)SIM_MAX_POS);
+}
+void HW_ActuatorMoveLeft(void) {
+    sim_move_left = true;
+    sim_move_right = false;
+    sim_last = HW_GetTickMs();
+}
+void HW_ActuatorMoveRight(void) {
+    sim_move_right = true;
+    sim_move_left = false;
+    sim_last = HW_GetTickMs();
+}
+void HW_ActuatorStop(void) {
+    sim_move_left = sim_move_right = false;
+}
+
+// called each Homing_Step - advance simulation depending on elapsed ms
+void HW_SimulationUpdate(uint32_t now_ms) {
+    if (sim_last == 0) { sim_last = now_ms; return; }
+    uint32_t dt = now_ms - sim_last;
+    if (dt == 0) return;
+    float dtf = (float)dt;
+    if (sim_move_right) {
+        sim_pos += sim_v_right * dtf;
+        if (sim_pos > SIM_MAX_POS) sim_pos = SIM_MAX_POS;
+    } else if (sim_move_left) {
+        sim_pos -= sim_v_left * dtf;
+        if (sim_pos < 0.0f) sim_pos = 0.0f;
+    }
+    sim_last = now_ms;
+}

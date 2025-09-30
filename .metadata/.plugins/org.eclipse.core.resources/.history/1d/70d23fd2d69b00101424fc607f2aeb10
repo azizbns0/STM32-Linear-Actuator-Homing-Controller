@@ -1,0 +1,33 @@
+/*
+ * homing_hal.h
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+#ifndef INC_HOMING_HAL_H_
+#define INC_HOMING_HAL_H_
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Hardware abstraction interface
+// These functions must be implemented by the platform-specific code
+
+// Timing
+uint32_t hal_get_tick_ms(void);
+
+// Switch reading (raw, unbounced values)
+bool hal_get_left_switch_raw(void);
+bool hal_get_right_switch_raw(void);
+
+// Actuator control
+void hal_actuator_move_left(void);
+void hal_actuator_move_right(void);
+void hal_actuator_stop(void);
+
+// Initialization/reset
+void hal_clear_switches(void);
+
+
+#endif /* INC_HOMING_HAL_H_ */

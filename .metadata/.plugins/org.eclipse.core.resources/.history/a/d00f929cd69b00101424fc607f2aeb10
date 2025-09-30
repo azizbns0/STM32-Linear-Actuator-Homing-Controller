@@ -1,0 +1,83 @@
+/*
+ * homing.h
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+#ifndef INC_HOMING_H_
+#define INC_HOMING_H_
+
+#include <stdint.h>
+#include <stdbool.h>
+
+// Configuration constants
+#ifndef HOMING_DEFAULT_TIMEOUT_MS
+#define HOMING_DEFAULT_TIMEOUT_MS 30000U
+#endif
+
+#ifndef HOMING_DEFAULT_DEBOUNCE_MS
+#define HOMING_DEFAULT_DEBOUNCE_MS 50U
+#endif
+
+// Homing states
+typedef enum {
+    HOMING_STATE_IDLE = 0,
+    HOMING_STATE_MOVE_TO_LEFT,
+    HOMING_STATE_MEASURE_LEFT_TO_RIGHT,
+    HOMING_STATE_MEASURE_RIGHT_TO_LEFT,
+    HOMING_STATE_MOVE_TO_CENTER,
+    HOMING_STATE_COMPLETE,
+    HOMING_STATE_ERROR
+} homing_state_t;
+
+// Error codes
+typedef enum {
+    HOMING_ERROR_NONE = 0,
+    HOMING_ERROR_TIMEOUT_MOVE_LEFT = 1,
+    HOMING_ERROR_TIMEOUT_MEASURE_LR = 2,
+    HOMING_ERROR_TIMEOUT_MEASURE_RL = 3,
+    HOMING_ERROR_INVALID_MEASUREMENT = 4,
+    HOMING_ERROR_SWITCH_STUCK = 5,
+    HOMING_ERROR_UNEXPECTED_SWITCH = 6
+} homing_error_t;
+
+// Homing context structure
+typedef struct {
+    homing_state_t state;
+    homing_error_t error_code;
+
+    // Timing
+    uint32_t state_start_time;
+    uint32_t measurement_start_time;
+    uint32_t timeout_ms;
+    uint32_t debounce_ms;
+
+    // Measurements
+    uint32_t time_left_to_right_ms;
+    uint32_t time_right_to_left_ms;
+    uint32_t center_time_ms;
+
+    // Flags
+    bool measurement_active;
+    bool center_move_started;
+
+    // Configuration
+    bool enable_asymmetric_calculation;
+} homing_context_t;
+
+// Public API
+void homing_init(homing_context_t *ctx);
+void homing_start(homing_context_t *ctx);
+void homing_update(homing_context_t *ctx);
+homing_state_t homing_get_state(const homing_context_t *ctx);
+homing_error_t homing_get_error(const homing_context_t *ctx);
+bool homing_is_complete(const homing_context_t *ctx);
+bool homing_has_error(const homing_context_t *ctx);
+
+// Configuration
+void homing_set_timeout(homing_context_t *ctx, uint32_t timeout_ms);
+void homing_set_debounce_time(homing_context_t *ctx, uint32_t debounce_ms);
+void homing_enable_asymmetric_calculation(homing_context_t *ctx, bool enable);
+
+#endif /* INC_HOMING_H_ */

@@ -1,0 +1,69 @@
+// hw_board.c - Test version using Discovery board buttons
+#include "homing_porting.h"
+#include "main.h"
+
+// Simple button press simulation
+static bool left_switch_pressed = false;
+static bool right_switch_pressed = false;
+//static uint32_t last_button_check = 0;
+static int button_sequence = 0; // 0=none, 1=left pressed, 2=right pressed
+
+//uint32_t HW_GetTickMs(void) {
+//    return HAL_GetTick();
+//}
+
+// Simulate limit switches using timed button presses
+bool HW_LeftSwitchRaw(void) {
+    return left_switch_pressed;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return right_switch_pressed;
+}
+
+// Visual actuator control - use LEDs to show direction
+void HW_ActuatorMoveLeft(void) {
+    // Turn on Orange LED to show "moving left"
+    HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOD, LD6_Pin, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorMoveRight(void) {
+    // Turn on Blue LED to show "moving right"
+    HAL_GPIO_WritePin(GPIOD, LD6_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorStop(void) {
+    // Turn off movement LEDs
+    HAL_GPIO_WritePin(GPIOD, LD3_Pin|LD6_Pin, GPIO_PIN_RESET);
+}
+
+// Auto-simulate limit switch presses for testing
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Check user button for manual progression
+    static bool last_button_state = false;
+    bool current_button = (HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_SET);
+
+    // Button pressed (rising edge)?
+    if (current_button && !last_button_state) {
+        // Advance through sequence: none -> left -> right -> none
+        button_sequence = (button_sequence + 1) % 3;
+
+        left_switch_pressed = (button_sequence == 1);
+        right_switch_pressed = (button_sequence == 2);
+
+        // Visual feedback on which switch is "pressed"
+        if (left_switch_pressed) {
+            HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);   // Green = left switch
+            HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET);
+        } else if (right_switch_pressed) {
+            HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);   // Red = right switch
+            HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_RESET);
+        } else {
+            HAL_GPIO_WritePin(GPIOD, LD4_Pin|LD5_Pin, GPIO_PIN_RESET); // Both off
+        }
+    }
+
+    last_button_state = current_button;
+}

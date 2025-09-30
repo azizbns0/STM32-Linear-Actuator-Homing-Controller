@@ -1,0 +1,7 @@
+../Core/Src/homing.c:29:13:DebounceUpdate	24	static
+../Core/Src/homing.c:42:13:Homing_SetError	16	static
+../Core/Src/homing.c:50:6:Homing_Init	16	static
+../Core/Src/homing.c:75:6:Homing_Start	16	static
+../Core/Src/homing.c:85:6:Homing_Update	32	static
+../Core/Src/homing.c:192:15:Homing_GetState	16	static
+../Core/Src/homing.c:197:5:Homing_GetErrorCode	16	static

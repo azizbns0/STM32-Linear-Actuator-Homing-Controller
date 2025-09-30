@@ -1,0 +1,79 @@
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdbool.h>
+
+// Using a simplified time-based simulation with fixed travel times
+static uint32_t left_move_start = 0;
+static uint32_t right_move_start = 0;
+static bool left_switch_on = false;
+static bool right_switch_on = false;
+
+// Simulated travel times (adjust these to match your actuator model)
+#define TIME_TO_LEFT_MS     5000
+#define TIME_TO_RIGHT_MS    10000 // Moving right from left limit takes 4s (full travel)
+#define TIME_TO_RIGHT_FROM_LEFT_LIMIT_MS TIME_TO_RIGHT_MS
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return left_switch_on;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return right_switch_on;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    left_move_start = HAL_GetTick();
+    right_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    right_move_start = HAL_GetTick();
+    left_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+void HW_ActuatorStop(void) {
+    // Keep switches active if reached, until a new move starts
+}
+
+// CRITICAL FUNCTION: Updates the simulated switch state based on time
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Actuator moving left: reaches the left switch after TIME_TO_LEFT_MS
+    if (left_move_start > 0 && (now_ms - left_move_start) >= TIME_TO_LEFT_MS) {
+        left_switch_on = true;
+    }
+
+    // Actuator moving right: reaches the right switch after TIME_TO_RIGHT_MS
+    if (right_move_start > 0 && (now_ms - right_move_start) >= TIME_TO_RIGHT_FROM_LEFT_LIMIT_MS) {
+        right_switch_on = true;
+    }
+}
+
+// CRITICAL RESET FUNCTION: Used by Homing_Init for clean restarts
+void HW_ClearSwitches(void) {
+    left_move_start = 0;
+    right_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+// Debug functions
+uint32_t Debug_GetRightMoveStart(void) {
+    return right_move_start;
+}
+
+bool Debug_GetRightSwitch(void) {
+    return right_switch_on;
+}
+
+uint32_t Debug_GetElapsedRight(void) {
+    if (right_move_start == 0) return 0;
+    return HAL_GetTick() - right_move_start;
+}

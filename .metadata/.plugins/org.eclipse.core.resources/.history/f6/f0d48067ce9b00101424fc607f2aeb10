@@ -1,0 +1,221 @@
+/*
+ * homing.c - FIXED VERSION
+ */
+
+#include "homing.h"
+#include "homing_porting.h"
+#include <stdlib.h>
+#include <math.h> // Assuming this is needed for asymmetric calc
+
+#ifndef HOMING_DEFAULT_TIMEOUT_MS
+#define HOMING_DEFAULT_TIMEOUT_MS 60000U
+#endif
+
+#ifndef HOMING_DEFAULT_DEBOUNCE_MS
+#define HOMING_DEFAULT_DEBOUNCE_MS 20U
+#endif
+
+#ifndef MAX_POS_UNITS
+#define MAX_POS_UNITS 1000 // Define a reasonable max position for asymmetric calc to work
+#endif
+
+typedef struct {
+    bool stable;
+    bool last_raw;
+    uint32_t last_change;
+} Debounce_t;
+
+static Debounce_t left_db;
+static Debounce_t right_db;
+
+static bool DebounceUpdate(Debounce_t *db, bool raw, uint32_t now, uint32_t debounce_ms) {
+    if (raw != db->last_raw) {
+        db->last_raw = raw;
+        db->last_change = now;
+    } else {
+        if ((now - db->last_change) >= debounce_ms) {
+            db->stable = raw;
+        }
+    }
+    return db->stable;
+}
+
+void Homing_Init(HomingCtx_t *ctx) {
+    ctx->state = HOMING_STATE_IDLE;
+    HW_ClearSwitches();
+    ctx->start_tick = 0;
+    ctx->measurement_start = 0;
+    ctx->t_lr_ms = 0;
+    ctx->t_rl_ms = 0;
+    ctx->middle_time_ms = 0;
+    ctx->timeout_ms = HOMING_DEFAULT_TIMEOUT_MS;
+    ctx->debounce_ms = HOMING_DEFAULT_DEBOUNCE_MS;
+    ctx->error_code = 0;
+    ctx->middle_movement_started = false;
+    ctx->enable_asymmetric_calc = false;
+
+    // Fix: Explicitly initialize static debouncer states
+    left_db.stable = left_db.last_raw = false;false;
+    left_db.last_raw = false;
+    left_db.last_change = 0;
+
+    right_db.stable = false;
+    right_db.last_raw = false;
+    right_db.last_change = 0;
+}
+
+void Homing_Start(HomingCtx_t *ctx) {
+    if (ctx->state == HOMING_STATE_IDLE || ctx->state == HOMING_STATE_DONE || ctx->state == HOMING_STATE_ERROR) {
+        // Reset all context variables
+        ctx->t_lr_ms = 0;
+        ctx->t_rl_ms = 0;
+        ctx->middle_time_ms = 0;
+        ctx->error_code = 0;
+        ctx->middle_movement_started = false;
+
+        ctx->start_tick = HW_GetTickMs();
+        ctx->state = HOMING_STATE_MOVE_TO_LEFT;
+        HW_ActuatorMoveLeft();
+    }
+}
+
+void Homing_Update(HomingCtx_t *ctx) {
+    uint32_t now = HW_GetTickMs();
+    bool left = DebounceUpdate(&left_db, HW_LeftSwitchRaw(), now, ctx->debounce_ms);
+    bool right = DebounceUpdate(&right_db, HW_RightSwitchRaw(), now, ctx->debounce_ms);
+
+    switch (ctx->state) {
+        case HOMING_STATE_IDLE:
+        case HOMING_STATE_DONE:
+        case HOMING_STATE_ERROR:
+            // Do nothing
+            break;
+
+        case HOMING_STATE_MOVE_TO_LEFT:
+            if (left) { // Switch hit
+                HW_ActuatorStop();
+                ctx->start_tick = now; // New reference for timeout in next state
+                ctx->t_rl_ms = 0; // Not measured yet
+                ctx->state = HOMING_STATE_MOVE_TO_RIGHT_MEASURE;
+                ctx->measurement_start = 0; // Measurement starts after moving off the switch
+            }
+
+            // Timeout check (Error Code 1)
+            if ((now - ctx->start_tick) > ctx->timeout_ms) {
+                ctx->error_code = 1;
+                ctx->state = HOMING_STATE_ERROR;
+                HW_ActuatorStop();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_RIGHT_MEASURE:
+            // 1. Wait until moved off the left switch AND start measuring time
+            if (left) { // Still on left switch - keep moving right
+                HW_ActuatorMoveRight();
+                // FIX: Removed ctx->start_tick = now; to allow Error Code 2 timeout to trigger.
+            } else if (ctx->measurement_start == 0) {
+                // Just moved off the left switch - start measurement
+                HW_ActuatorMoveRight();
+                ctx->measurement_start = now;
+            } else if (right) {
+                // 3. Hit the right switch - end measurement
+                HW_ActuatorStop();
+                ctx->t_lr_ms = now - ctx->measurement_start;
+                ctx->start_tick = now; // New reference for timeout in next state
+                ctx->state = HOMING_STATE_MOVE_TO_LEFT_MEASURE;
+                ctx->measurement_start = 0;
+            }
+
+            // Timeout check (Error Code 2)
+            if ((now - ctx->start_tick) > ctx->timeout_ms) {
+                ctx->error_code = 2;
+                ctx->state = HOMING_STATE_ERROR;
+                HW_ActuatorStop();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_LEFT_MEASURE:
+            // 1. Calculate middle position time (only once)
+            if (ctx->t_rl_ms == 0 && ctx->t_lr_ms != 0) {
+                uint32_t t_total;
+                uint32_t t_half_total;
+                uint32_t t_middle_rl = 0;
+                uint32_t t_middle_lr = 0;
+
+                if (ctx->enable_asymmetric_calc) {
+                    // Placeholder for complex asymmetric calc logic (needs speeds, not just times)
+                    // Assuming for now symmetric calc unless the actual logic is provided.
+                    // *** BUG WARNING: If the original asymmetric calculation leads to middle_time_ms = 0, this is Error Code 3. ***
+
+                    // Fallback to symmetric if asymmetric speeds are not known yet:
+                    t_total = ctx->t_lr_ms;
+                    t_half_total = t_total / 2;
+                    ctx->middle_time_ms = t_half_total;
+
+                } else {
+                    // Symmetric calculation
+                    t_total = ctx->t_lr_ms;
+                    t_half_total = t_total / 2;
+                    ctx->middle_time_ms = t_half_total;
+                }
+
+                if (ctx->middle_time_ms == 0) {
+                    // This error indicates measurement failed or was too fast (t_lr_ms < 2ms)
+                    ctx->error_code = 3;
+                    ctx->state = HOMING_STATE_ERROR;
+                    HW_ActuatorStop();
+                    break;
+                }
+
+                // Start moving left to measure t_rl_ms
+                HW_ActuatorMoveLeft();
+                ctx->measurement_start = now;
+                ctx->t_rl_ms = 1; // Mark as started, actual value will be updated later
+            }
+
+            // 2. Wait for left switch hit
+            if (ctx->measurement_start != 0 && left) {
+                HW_ActuatorStop();
+                ctx->t_rl_ms = now - ctx->measurement_start; // Actual time recorded
+                ctx->state = HOMING_STATE_MOVE_TO_MIDDLE;
+                ctx->start_tick = now;
+            }
+
+            // 3. Timeout check (Error Code 4)
+            if (ctx->t_rl_ms == 0 && ctx->measurement_start != 0 &&
+                (now - ctx->measurement_start) > ctx->timeout_ms) {
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 4;
+                HW_ActuatorStop();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_MIDDLE:
+            // Use a short delay (e.g., 50ms) to ensure stop command is processed before moving again
+            if (!ctx->middle_movement_started && (now - ctx->start_tick) >= 50) {
+                ctx->start_tick = now;
+                HW_ActuatorMoveRight();
+                ctx->middle_movement_started = true;
+            }
+
+            if (ctx->middle_movement_started && (now - ctx->start_tick) >= ctx->middle_time_ms) {
+                HW_ActuatorStop();
+                ctx->state = HOMING_STATE_DONE;
+                ctx->middle_movement_started = false;
+            }
+
+            // Safety check: a limit switch should not be hit during this final move
+            if (left || right) {
+                HW_ActuatorStop();
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 5;
+                ctx->middle_movement_started = false;
+            }
+
+            break;
+    }
+
+}
+HomingState_t Homing_GetState(HomingCtx_t *ctx) {
+    return ctx->state;
+}

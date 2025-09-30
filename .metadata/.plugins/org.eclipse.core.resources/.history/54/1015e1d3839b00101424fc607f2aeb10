@@ -1,0 +1,262 @@
+/*
+ * homing.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+#include "homing.h"
+#include "homing_porting.h"
+
+#define DEFAULT_TIMEOUT_MS 30000U
+#define DEFAULT_DEBOUNCE_MS 20U
+#define DEFAULT_PAUSE_MS 50U
+
+static bool debounce_input(bool raw_input, bool *last_raw, bool *stable_state,
+                          uint32_t *last_change_time, uint32_t current_time,
+                          uint32_t debounce_ms) {
+    if (raw_input != *last_raw) {
+        *last_raw = raw_input;
+        *last_change_time = current_time;
+    } else if ((current_time - *last_change_time) >= debounce_ms) {
+        *stable_state = raw_input;
+    }
+    return *stable_state;
+}
+
+static void update_switch_states(HomingContext_t *ctx, uint32_t current_time) {
+    bool left_raw = HW_LeftSwitchRaw();
+    bool right_raw = HW_RightSwitchRaw();
+
+    ctx->debounce.left_stable = debounce_input(
+        left_raw,
+        &ctx->debounce.left_last_raw,
+        &ctx->debounce.left_stable,
+        &ctx->debounce.left_last_change,
+        current_time,
+        ctx->config.debounce_ms
+    );
+
+    ctx->debounce.right_stable = debounce_input(
+        right_raw,
+        &ctx->debounce.right_last_raw,
+        &ctx->debounce.right_stable,
+        &ctx->debounce.right_last_change,
+        current_time,
+        ctx->config.debounce_ms
+    );
+}
+
+static bool is_timeout_exceeded(const HomingContext_t *ctx, uint32_t current_time) {
+    return (current_time - ctx->state_start_time) > ctx->config.timeout_ms;
+}
+
+static bool is_pause_complete(const HomingContext_t *ctx, uint32_t current_time) {
+    return (current_time - ctx->state_start_time) >= ctx->config.pause_after_switch_ms;
+}
+
+static void transition_to_state(HomingContext_t *ctx, HomingState_t new_state, uint32_t current_time) {
+    ctx->state = new_state;
+    ctx->state_start_time = current_time;
+}
+
+static void set_error_and_stop(HomingContext_t *ctx, HomingError_t error, uint32_t current_time) {
+    ctx->error_code = error;
+    HW_ActuatorStop();
+    transition_to_state(ctx, HOMING_STATE_ERROR, current_time);
+}
+
+static void calculate_middle_position_time(HomingContext_t *ctx) {
+    if (ctx->lr_travel_time_ms == 0 || ctx->rl_travel_time_ms == 0) {
+        ctx->error_code = HOMING_ERROR_INVALID_MEASUREMENTS;
+        return;
+    }
+
+    if (ctx->config.enable_asymmetric_compensation) {
+        // For asymmetric speeds: find time to reach middle position
+        // If v_lr != v_rl, the middle position calculation is more complex
+        // Using the fact that middle distance = total_distance / 2
+        // and time = distance / velocity
+
+        // Let d = total distance, v1 = lr_speed, v2 = rl_speed
+        // d = v1 * t_lr = v2 * t_rl (both should be equal, if not, use average)
+        // middle_time = (d/2) / v1 = (v2 * t_rl / 2) / v1 = (t_rl / 2) * (v2/v1)
+        // Since v2/v1 = t_lr/t_rl, we get: middle_time = (t_rl / 2) * (t_lr/t_rl) = t_lr/2
+        // But this assumes we're moving left-to-right to middle
+
+        // More robust approach: calculate actual distance ratio
+        float distance_ratio = (float)ctx->lr_travel_time_ms / (float)ctx->rl_travel_time_ms;
+
+        // If we're at left end and moving right, time to middle is:
+        // middle_time = t_lr / 2 (this works regardless of speed asymmetry for distance-based middle)
+        ctx->calculated_middle_time_ms = ctx->lr_travel_time_ms / 2;
+
+        // Alternative calculation for verification:
+        // uint32_t alt_middle_time = (uint32_t)((float)ctx->rl_travel_time_ms / 2.0f * distance_ratio);
+
+    } else {
+        // Simple symmetric case
+        ctx->calculated_middle_time_ms = ctx->lr_travel_time_ms / 2;
+    }
+}
+
+void Homing_GetDefaultConfig(HomingConfig_t *config) {
+    config->timeout_ms = DEFAULT_TIMEOUT_MS;
+    config->debounce_ms = DEFAULT_DEBOUNCE_MS;
+    config->pause_after_switch_ms = DEFAULT_PAUSE_MS;
+    config->enable_asymmetric_compensation = true;
+}
+
+void Homing_Init(HomingContext_t *ctx, const HomingConfig_t *config) {
+    ctx->state = HOMING_STATE_IDLE;
+    ctx->error_code = HOMING_ERROR_NONE;
+    ctx->state_start_time = 0;
+    ctx->lr_travel_time_ms = 0;
+    ctx->rl_travel_time_ms = 0;
+    ctx->calculated_middle_time_ms = 0;
+
+    if (config) {
+        ctx->config = *config;
+    } else {
+        Homing_GetDefaultConfig(&ctx->config);
+    }
+
+    // Initialize debounce state
+    ctx->debounce.left_stable = false;
+    ctx->debounce.right_stable = false;
+    ctx->debounce.left_last_raw = false;
+    ctx->debounce.right_last_raw = false;
+    ctx->debounce.left_last_change = 0;
+    ctx->debounce.right_last_change = 0;
+}
+
+void Homing_Start(HomingContext_t *ctx) {
+    uint32_t current_time = HW_GetTickMs();
+
+    ctx->error_code = HOMING_ERROR_NONE;
+    ctx->lr_travel_time_ms = 0;
+    ctx->rl_travel_time_ms = 0;
+    ctx->calculated_middle_time_ms = 0;
+
+    transition_to_state(ctx, HOMING_STATE_MOVE_TO_LEFT_END, current_time);
+    HW_ActuatorMoveLeft();
+}
+
+void Homing_Step(HomingContext_t *ctx) {
+    uint32_t current_time = HW_GetTickMs();
+
+    // Update hardware simulation if present
+    HW_SimulationUpdate(current_time);
+
+    // Update debounced switch states
+    update_switch_states(ctx, current_time);
+
+    // Check for error condition: both switches active (should never happen in normal operation)
+    if (ctx->debounce.left_stable && ctx->debounce.right_stable &&
+        ctx->state != HOMING_STATE_ERROR && ctx->state != HOMING_STATE_IDLE) {
+        set_error_and_stop(ctx, HOMING_ERROR_BOTH_SWITCHES_ACTIVE, current_time);
+        return;
+    }
+
+    switch (ctx->state) {
+        case HOMING_STATE_IDLE:
+            // Nothing to do
+            break;
+
+        case HOMING_STATE_MOVE_TO_LEFT_END:
+            if (ctx->debounce.left_stable) {
+                HW_ActuatorStop();
+                transition_to_state(ctx, HOMING_STATE_PAUSE_AFTER_LEFT, current_time);
+            } else if (is_timeout_exceeded(ctx, current_time)) {
+                set_error_and_stop(ctx, HOMING_ERROR_TIMEOUT_TO_LEFT, current_time);
+            }
+            break;
+
+        case HOMING_STATE_PAUSE_AFTER_LEFT:
+            if (is_pause_complete(ctx, current_time)) {
+                transition_to_state(ctx, HOMING_STATE_MEASURE_LEFT_TO_RIGHT, current_time);
+                HW_ActuatorMoveRight();
+            }
+            break;
+
+        case HOMING_STATE_MEASURE_LEFT_TO_RIGHT:
+            if (ctx->debounce.right_stable) {
+                HW_ActuatorStop();
+                ctx->lr_travel_time_ms = current_time - ctx->state_start_time;
+                transition_to_state(ctx, HOMING_STATE_PAUSE_AFTER_RIGHT, current_time);
+            } else if (is_timeout_exceeded(ctx, current_time)) {
+                set_error_and_stop(ctx, HOMING_ERROR_TIMEOUT_TO_RIGHT, current_time);
+            }
+            break;
+
+        case HOMING_STATE_PAUSE_AFTER_RIGHT:
+            if (is_pause_complete(ctx, current_time)) {
+                transition_to_state(ctx, HOMING_STATE_MEASURE_RIGHT_TO_LEFT, current_time);
+                HW_ActuatorMoveLeft();
+            }
+            break;
+
+        case HOMING_STATE_MEASURE_RIGHT_TO_LEFT:
+            if (ctx->debounce.left_stable) {
+                HW_ActuatorStop();
+                ctx->rl_travel_time_ms = current_time - ctx->state_start_time;
+                calculate_middle_position_time(ctx);
+
+                if (ctx->error_code == HOMING_ERROR_NONE) {
+                    transition_to_state(ctx, HOMING_STATE_PAUSE_AFTER_MEASUREMENT, current_time);
+                } else {
+                    transition_to_state(ctx, HOMING_STATE_ERROR, current_time);
+                }
+            } else if (is_timeout_exceeded(ctx, current_time)) {
+                set_error_and_stop(ctx, HOMING_ERROR_TIMEOUT_RETURN_TO_LEFT, current_time);
+            }
+            break;
+
+        case HOMING_STATE_PAUSE_AFTER_MEASUREMENT:
+            if (is_pause_complete(ctx, current_time)) {
+                transition_to_state(ctx, HOMING_STATE_MOVE_TO_MIDDLE, current_time);
+                HW_ActuatorMoveRight();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_MIDDLE:
+            // Check if we hit a switch during middle movement (error condition)
+            if (ctx->debounce.left_stable || ctx->debounce.right_stable) {
+                set_error_and_stop(ctx, HOMING_ERROR_SWITCH_HIT_DURING_MIDDLE_MOVE, current_time);
+            } else if ((current_time - ctx->state_start_time) >= ctx->calculated_middle_time_ms) {
+                HW_ActuatorStop();
+                transition_to_state(ctx, HOMING_STATE_DONE, current_time);
+            } else if (is_timeout_exceeded(ctx, current_time)) {
+                set_error_and_stop(ctx, HOMING_ERROR_TIMEOUT_TO_MIDDLE, current_time);
+            }
+            break;
+
+        case HOMING_STATE_DONE:
+        case HOMING_STATE_ERROR:
+            // Terminal states - nothing to do
+            break;
+    }
+}
+
+HomingState_t Homing_GetState(const HomingContext_t *ctx) {
+    return ctx->state;
+}
+
+HomingError_t Homing_GetError(const HomingContext_t *ctx) {
+    return ctx->error_code;
+}
+
+bool Homing_IsComplete(const HomingContext_t *ctx) {
+    return ctx->state == HOMING_STATE_DONE;
+}
+
+bool Homing_IsError(const HomingContext_t *ctx) {
+    return ctx->state == HOMING_STATE_ERROR;
+}
+
+void Homing_Reset(HomingContext_t *ctx) {
+    HW_ActuatorStop();
+    ctx->state = HOMING_STATE_IDLE;
+    ctx->error_code = HOMING_ERROR_NONE;
+}

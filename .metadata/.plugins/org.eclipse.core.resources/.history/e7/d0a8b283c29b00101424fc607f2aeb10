@@ -1,0 +1,94 @@
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdbool.h>
+#include"main.h"
+// Track what's happening
+static uint32_t left_move_start = 0;
+static uint32_t right_move_start = 0;
+static bool left_switch_on = false;
+static bool right_switch_on = false;
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return left_switch_on;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return right_switch_on;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    left_move_start = HAL_GetTick();
+    right_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    right_move_start = HAL_GetTick();
+    left_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+void HW_ActuatorStop(void) {
+    // Keep switches active
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Update switches based on timing
+    if (left_move_start > 0 && (now_ms - left_move_start) >= 2000) {
+        left_switch_on = true;
+    }
+
+    if (right_move_start > 0 && (now_ms - right_move_start) >= 2000) {
+        right_switch_on = true;
+    }
+}
+
+// Debug functions to check what's happening
+uint32_t Debug_GetRightMoveStart(void) {
+    return right_move_start;
+}
+
+bool Debug_GetRightSwitch(void) {
+    return right_switch_on;
+}
+
+uint32_t Debug_GetElapsedRight(void) {
+    if (right_move_start == 0) return 0;
+    return HAL_GetTick() - right_move_start;
+}
+void HW_ActuatorMoveLeft(void) {
+    left_move_start = HAL_GetTick();
+    right_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+
+    // DEBUG: Flash Orange LED when this function is called
+    HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOD, LD3_Pin, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorMoveRight(void) {
+    right_move_start = HAL_GetTick();
+    left_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+
+    // DEBUG: Flash Green LED when this function is called
+    HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOD, LD4_Pin, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorStop(void) {
+    // DEBUG: Flash Red LED when this function is called
+    HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_SET);
+    HAL_Delay(100);
+    HAL_GPIO_WritePin(GPIOD, LD5_Pin, GPIO_PIN_RESET);
+}

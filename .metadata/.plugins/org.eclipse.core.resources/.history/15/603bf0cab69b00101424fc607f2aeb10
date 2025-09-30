@@ -1,0 +1,65 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+// hw_simulation.c
+// A simulation implementation of homing_porting.h so you can test without real actuator.
+// Define HOMING_USE_SIMULATION=1 in your project to use this file.
+
+#include "homing_porting.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+// Pin definitions for Discovery board
+// You can adjust these based on your actual connections
+
+// For limit switches (use the onboard user button and another GPIO)
+#define LEFT_SWITCH_PORT    GPIOA
+#define LEFT_SWITCH_PIN     GPIO_PIN_0    // User button (B1)
+#define RIGHT_SWITCH_PORT   GPIOD
+#define RIGHT_SWITCH_PIN    GPIO_PIN_8    // Use one of the limit switch pins from your main.h
+
+// For actuator control outputs (use some available GPIOs)
+#define ACTUATOR_LEFT_PORT  GPIOE
+#define ACTUATOR_LEFT_PIN   GPIO_PIN_10
+#define ACTUATOR_RIGHT_PORT GPIOE
+#define ACTUATOR_RIGHT_PIN  GPIO_PIN_11
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    // Active low (button pressed = low)
+    return HAL_GPIO_ReadPin(LEFT_SWITCH_PORT, LEFT_SWITCH_PIN) == GPIO_PIN_RESET;
+}
+
+bool HW_RightSwitchRaw(void) {
+    // You'll need to connect a button/switch to this pin
+    // For testing, you could use a jumper wire to connect to GND
+    return HAL_GPIO_ReadPin(RIGHT_SWITCH_PORT, RIGHT_SWITCH_PIN) == GPIO_PIN_RESET;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    HAL_GPIO_WritePin(ACTUATOR_LEFT_PORT, ACTUATOR_LEFT_PIN, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(ACTUATOR_RIGHT_PORT, ACTUATOR_RIGHT_PIN, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorMoveRight(void) {
+    HAL_GPIO_WritePin(ACTUATOR_LEFT_PORT, ACTUATOR_LEFT_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(ACTUATOR_RIGHT_PORT, ACTUATOR_RIGHT_PIN, GPIO_PIN_SET);
+}
+
+void HW_ActuatorStop(void) {
+    HAL_GPIO_WritePin(ACTUATOR_LEFT_PORT, ACTUATOR_LEFT_PIN, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(ACTUATOR_RIGHT_PORT, ACTUATOR_RIGHT_PIN, GPIO_PIN_RESET);
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Nothing to do for real hardware
+    (void)now_ms;
+}

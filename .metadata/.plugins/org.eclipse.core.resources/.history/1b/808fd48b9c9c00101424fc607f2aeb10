@@ -1,0 +1,45 @@
+/*
+ * homing.h
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+#ifndef INC_HOMING_H_
+#define INC_HOMING_H_
+
+#include <stdint.h>
+#include <stdbool.h>
+
+typedef enum {
+    HOMING_STATE_IDLE = 0,
+    HOMING_STATE_MOVE_TO_LEFT,
+    HOMING_STATE_MOVE_TO_RIGHT_MEASURE,
+    HOMING_STATE_MOVE_TO_LEFT_MEASURE,
+    HOMING_STATE_MOVE_TO_MIDDLE,
+    HOMING_STATE_DONE,
+    HOMING_STATE_ERROR
+} HomingState_t;
+
+typedef struct {
+    HomingState_t state;
+    uint32_t start_tick;
+    uint32_t measurement_start;
+    uint32_t t_lr_ms;
+    uint32_t t_rl_ms;
+    uint32_t middle_time_ms;
+    uint32_t timeout_ms;
+    uint32_t debounce_ms;
+    int error_code;
+    bool middle_movement_started;
+    bool enable_asymmetric_calc;
+} HomingCtx_t;
+
+void Homing_Init(HomingCtx_t *ctx);
+void Homing_Start(HomingCtx_t *ctx);
+void Homing_Step(HomingCtx_t *ctx);
+HomingState_t Homing_GetState(HomingCtx_t *ctx);
+void Homing_Update(HomingCtx_t *ctx);
+HomingState_t Homing_GetState(HomingCtx_t *ctx);
+int Homing_GetErrorCode(HomingCtx_t *ctx);
+#endif /* INC_HOMING_H_ */

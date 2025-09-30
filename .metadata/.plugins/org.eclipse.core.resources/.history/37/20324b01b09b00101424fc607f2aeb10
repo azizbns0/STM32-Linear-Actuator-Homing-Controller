@@ -1,0 +1,74 @@
+/*
+ * homing_real_hardware.c
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+#include "homing_porting.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+// Simple simulation state
+static struct {
+    float position;           // 0.0 = left end, 100.0 = right end
+    bool moving_left;
+    bool moving_right;
+    uint32_t last_update;
+} sim = {
+    .position = 50.0f,        // Start in middle
+    .moving_left = false,
+    .moving_right = false,
+    .last_update = 0
+};
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    if (sim.last_update == 0) {
+        sim.last_update = now_ms;
+        return;
+    }
+
+    uint32_t dt = now_ms - sim.last_update;
+    sim.last_update = now_ms;
+
+    // Simple movement - 0.02 units per ms = 5 seconds to cross full range
+    if (sim.moving_left && !sim.moving_right) {
+        sim.position -= 0.02f * dt;
+        if (sim.position < 0) sim.position = 0;
+    } else if (sim.moving_right && !sim.moving_left) {
+        sim.position += 0.02f * dt;
+        if (sim.position > 100) sim.position = 100;
+    }
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return sim.position <= 10.0f;  // Trigger when position <= 10
+}
+
+bool HW_RightSwitchRaw(void) {
+    return sim.position >= 90.0f;  // Trigger when position >= 90
+}
+
+void HW_ActuatorMoveLeft(void) {
+    sim.moving_left = true;
+    sim.moving_right = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    sim.moving_left = false;
+    sim.moving_right = true;
+}
+
+void HW_ActuatorStop(void) {
+    sim.moving_left = false;
+    sim.moving_right = false;
+}
+
+// Debug function
+float Sim_GetPosition(void) {
+    return sim.position;
+}

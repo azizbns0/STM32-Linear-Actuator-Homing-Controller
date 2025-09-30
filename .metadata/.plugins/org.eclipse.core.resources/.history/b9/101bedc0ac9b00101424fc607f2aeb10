@@ -1,0 +1,49 @@
+/*
+ * homing_real_hardware.c
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+
+#include "homing_porting.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    // Use the onboard user button (active low)
+    return HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET;
+}
+
+bool HW_RightSwitchRaw(void) {
+    // Use PD8 - connect to GND to simulate switch press
+    return HAL_GPIO_ReadPin(limit_switche_2_GPIO_Port, limit_switche_2_Pin) == GPIO_PIN_RESET;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    // Set PE10 high, PE11 low (if you connected LEDs there)
+    // Or just use the onboard LEDs for indication
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorMoveRight(void) {
+    // Set PE10 low, PE11 high
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_SET);
+}
+
+void HW_ActuatorStop(void) {
+    // Both outputs low
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_RESET);
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Nothing to do for real hardware
+    (void)now_ms;
+}

@@ -1,0 +1,17 @@
+/*
+ * hw_simulation.h
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+#ifndef INC_HW_SIMULATION_H_
+#define INC_HW_SIMULATION_H_
+
+#include <stdint.h>
+
+void Sim_SetSpeeds(float units_per_ms_right, float units_per_ms_left);
+void Sim_SetInitialPos(int pos);
+int  Sim_GetPosition(void);
+
+#endif /* INC_HW_SIMULATION_H_ */

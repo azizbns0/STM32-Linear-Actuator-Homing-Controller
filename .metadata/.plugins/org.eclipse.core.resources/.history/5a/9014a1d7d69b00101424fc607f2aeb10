@@ -1,0 +1,156 @@
+/*
+ * homing_hal_sim.c
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+
+#include "homing_hal.h"
+#include "stm32f4xx_hal.h"
+
+// Simulation configuration
+#define SIM_TOTAL_DISTANCE_UNITS    1000    // Total travel distance
+#define SIM_LEFT_SWITCH_POS         50      // Left switch position
+#define SIM_RIGHT_SWITCH_POS        950     // Right switch position
+#define SIM_DEFAULT_SPEED_RIGHT     0.5f    // units per ms (moving right)
+#define SIM_DEFAULT_SPEED_LEFT      0.4f    // units per ms (moving left, slightly slower)
+
+// Actuator states
+typedef enum {
+    ACTUATOR_STOPPED = 0,
+    ACTUATOR_MOVING_LEFT,
+    ACTUATOR_MOVING_RIGHT
+} actuator_state_t;
+
+// Simulation state
+static struct {
+    float current_position;         // Current position in units
+    actuator_state_t movement_state;
+    uint32_t last_update_time;
+    float speed_right;              // Speed when moving right (units/ms)
+    float speed_left;               // Speed when moving left (units/ms)
+    bool initialized;
+} sim_state;
+
+// Private function declarations
+static void update_position(void);
+static void init_simulation_if_needed(void);
+
+// HAL Interface Implementation
+
+uint32_t hal_get_tick_ms(void) {
+    return HAL_GetTick();
+}
+
+bool hal_get_left_switch_raw(void) {
+    init_simulation_if_needed();
+    update_position();
+    return sim_state.current_position <= SIM_LEFT_SWITCH_POS;
+}
+
+bool hal_get_right_switch_raw(void) {
+    init_simulation_if_needed();
+    update_position();
+    return sim_state.current_position >= SIM_RIGHT_SWITCH_POS;
+}
+
+void hal_actuator_move_left(void) {
+    init_simulation_if_needed();
+    update_position();
+    sim_state.movement_state = ACTUATOR_MOVING_LEFT;
+    sim_state.last_update_time = HAL_GetTick();
+}
+
+void hal_actuator_move_right(void) {
+    init_simulation_if_needed();
+    update_position();
+    sim_state.movement_state = ACTUATOR_MOVING_RIGHT;
+    sim_state.last_update_time = HAL_GetTick();
+}
+
+void hal_actuator_stop(void) {
+    init_simulation_if_needed();
+    update_position();
+    sim_state.movement_state = ACTUATOR_STOPPED;
+}
+
+void hal_clear_switches(void) {
+    // Reset simulation to middle position
+    sim_state.current_position = SIM_TOTAL_DISTANCE_UNITS / 2.0f;
+    sim_state.movement_state = ACTUATOR_STOPPED;
+    sim_state.last_update_time = HAL_GetTick();
+}
+
+// Simulation configuration functions (optional, for testing different scenarios)
+
+void sim_set_speeds(float speed_right_units_per_ms, float speed_left_units_per_ms) {
+    init_simulation_if_needed();
+    sim_state.speed_right = speed_right_units_per_ms;
+    sim_state.speed_left = speed_left_units_per_ms;
+}
+
+void sim_set_position(float position_units) {
+    init_simulation_if_needed();
+    if (position_units >= 0 && position_units <= SIM_TOTAL_DISTANCE_UNITS) {
+        sim_state.current_position = position_units;
+    }
+}
+
+float sim_get_position(void) {
+    init_simulation_if_needed();
+    update_position();
+    return sim_state.current_position;
+}
+
+bool sim_is_moving(void) {
+    return sim_state.movement_state != ACTUATOR_STOPPED;
+}
+
+// Private function implementations
+
+static void init_simulation_if_needed(void) {
+    if (!sim_state.initialized) {
+        sim_state.current_position = SIM_TOTAL_DISTANCE_UNITS / 2.0f; // Start in middle
+        sim_state.movement_state = ACTUATOR_STOPPED;
+        sim_state.speed_right = SIM_DEFAULT_SPEED_RIGHT;
+        sim_state.speed_left = SIM_DEFAULT_SPEED_LEFT;
+        sim_state.last_update_time = HAL_GetTick();
+        sim_state.initialized = true;
+    }
+}
+
+static void update_position(void) {
+    uint32_t now = HAL_GetTick();
+    uint32_t elapsed_ms = now - sim_state.last_update_time;
+
+    if (elapsed_ms > 0 && sim_state.movement_state != ACTUATOR_STOPPED) {
+        float distance_moved = 0;
+
+        switch (sim_state.movement_state) {
+            case ACTUATOR_MOVING_RIGHT:
+                distance_moved = sim_state.speed_right * elapsed_ms;
+                sim_state.current_position += distance_moved;
+                // Limit to maximum position
+                if (sim_state.current_position > SIM_TOTAL_DISTANCE_UNITS) {
+                    sim_state.current_position = SIM_TOTAL_DISTANCE_UNITS;
+                }
+                break;
+
+            case ACTUATOR_MOVING_LEFT:
+                distance_moved = sim_state.speed_left * elapsed_ms;
+                sim_state.current_position -= distance_moved;
+                // Limit to minimum position
+                if (sim_state.current_position < 0) {
+                    sim_state.current_position = 0;
+                }
+                break;
+
+            case ACTUATOR_STOPPED:
+                // No movement
+                break;
+        }
+
+        sim_state.last_update_time = now;
+    }
+}

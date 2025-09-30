@@ -1,0 +1,7 @@
+../Core/Src/homing.c:29:13:DebounceUpdate	3
+../Core/Src/homing.c:42:13:Homing_SetError	1
+../Core/Src/homing.c:50:6:Homing_Init	3
+../Core/Src/homing.c:75:6:Homing_Start	4
+../Core/Src/homing.c:85:6:Homing_Update	27
+../Core/Src/homing.c:192:15:Homing_GetState	1
+../Core/Src/homing.c:197:5:Homing_GetErrorCode	1

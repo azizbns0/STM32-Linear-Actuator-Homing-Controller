@@ -1,0 +1,37 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+// hw_simulation.c
+// A simulation implementation of homing_porting.h so you can test without real actuator.
+// Define HOMING_USE_SIMULATION=1 in your project to use this file.
+
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+#define LEFT_SWITCH_TIME   2000   // after 2s left is active
+#define RIGHT_SWITCH_TIME  5000   // after 5s right is active
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return (HAL_GetTick() > LEFT_SWITCH_TIME);
+}
+
+bool HW_RightSwitchRaw(void) {
+    return (HAL_GetTick() > RIGHT_SWITCH_TIME);
+}
+
+void HW_ActuatorMoveLeft(void) { /* no real motor; LED shows state in main */ }
+void HW_ActuatorMoveRight(void) { /* no real motor; LED shows state in main */ }
+void HW_ActuatorStop(void) { /* no real motor; LED shows state in main */ }
+
+void HW_SimulationUpdate(uint32_t now_ms) { (void)now_ms; }

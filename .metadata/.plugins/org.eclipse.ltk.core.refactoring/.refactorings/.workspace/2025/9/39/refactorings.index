@@ -1,0 +1,3 @@
+1759000740122	Delete resource 'Test_Task/Core/Inc/homing_hal.h'
+1759000749149	Delete resource 'Test_Task/Core/Src/homing_hal_sim.c'
+1759000771582	Delete resource 'Test_Task/Core/Src/homing_hal_stm32.c'

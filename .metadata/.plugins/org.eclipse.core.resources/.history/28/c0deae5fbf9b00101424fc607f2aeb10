@@ -1,0 +1,86 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdbool.h>
+
+// Simple state tracking
+static uint32_t move_start_time = 0;
+static bool currently_moving_left = false;
+static bool currently_moving_right = false;
+static bool left_switch_active = false;
+static bool right_switch_active = false;
+
+// Simple timing
+#define MOVE_TIME_MS 2000  // 2 seconds for any movement
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return left_switch_active;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return right_switch_active;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    currently_moving_left = true;
+    currently_moving_right = false;
+    move_start_time = HAL_GetTick();
+
+    // Clear all switches when starting movement
+    left_switch_active = false;
+    right_switch_active = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    currently_moving_left = false;
+    currently_moving_right = true;
+    move_start_time = HAL_GetTick();
+
+    // Clear all switches when starting movement
+    left_switch_active = false;
+    right_switch_active = false;
+}
+
+void HW_ActuatorStop(void) {
+    currently_moving_left = false;
+    currently_moving_right = false;
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    uint32_t elapsed = now_ms - move_start_time;
+
+    // Simple logic: activate switch after 2 seconds of movement
+    if (currently_moving_left && elapsed >= MOVE_TIME_MS) {
+        left_switch_active = true;
+    }
+
+    if (currently_moving_right && elapsed >= MOVE_TIME_MS) {
+        right_switch_active = true;
+    }
+
+    // Keep switches active for a bit after stopping
+    static uint32_t stop_time = 0;
+    if (!currently_moving_left && !currently_moving_right) {
+        if (stop_time == 0) {
+            stop_time = now_ms;
+        } else if (now_ms - stop_time > 500) {  // Clear after 500ms
+            left_switch_active = false;
+            right_switch_active = false;
+            stop_time = 0;
+        }
+    } else {
+        stop_time = 0;  // Reset if moving again
+    }
+}

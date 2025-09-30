@@ -1,0 +1,100 @@
+/*
+ * homing_real_hardware.c
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+#include "homing_porting.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+// Time-based simulation (much more reliable than position-based)
+static struct {
+    uint32_t move_start_time;
+    bool moving_left;
+    bool moving_right;
+    bool left_switch_reached;
+    bool right_switch_reached;
+
+    // Timing parameters
+    uint32_t time_to_left_ms;    // Time to reach left switch
+    uint32_t time_to_right_ms;   // Time to reach right switch from left
+    uint32_t time_back_to_left_ms; // Time to return to left from right
+} sim = {
+    .move_start_time = 0,
+    .moving_left = false,
+    .moving_right = false,
+    .left_switch_reached = false,
+    .right_switch_reached = false,
+    .time_to_left_ms = 2000,     // 2 seconds to reach left
+    .time_to_right_ms = 4000,    // 4 seconds left-to-right (asymmetric test)
+    .time_back_to_left_ms = 3000 // 3 seconds right-to-left
+};
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Update switch states based on movement time
+    uint32_t elapsed = now_ms - sim.move_start_time;
+
+    if (sim.moving_left) {
+        // Check if we've reached left switch
+        if (elapsed >= sim.time_to_left_ms) {
+            sim.left_switch_reached = true;
+        } else {
+            sim.left_switch_reached = false;
+        }
+        sim.right_switch_reached = false;
+
+    } else if (sim.moving_right) {
+        // Check if we've reached right switch
+        if (elapsed >= sim.time_to_right_ms) {
+            sim.right_switch_reached = true;
+        } else {
+            sim.right_switch_reached = false;
+        }
+        sim.left_switch_reached = false;
+
+    } else {
+        // Not moving - maintain current switch states briefly, then clear
+        if (elapsed > 100) {  // 100ms after stopping
+            sim.left_switch_reached = false;
+            sim.right_switch_reached = false;
+        }
+    }
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return sim.left_switch_reached;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return sim.right_switch_reached;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    sim.moving_left = true;
+    sim.moving_right = false;
+    sim.move_start_time = HW_GetTickMs();
+    // Reset switch states when starting new movement
+    sim.left_switch_reached = false;
+    sim.right_switch_reached = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    sim.moving_left = false;
+    sim.moving_right = true;
+    sim.move_start_time = HW_GetTickMs();
+    // Reset switch states when starting new movement
+    sim.left_switch_reached = false;
+    sim.right_switch_reached = false;
+}
+
+void HW_ActuatorStop(void) {
+    sim.moving_left = false;
+    sim.moving_right = false;
+    // Don't reset move_start_time - let switches stay active briefly
+}

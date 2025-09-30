@@ -1,0 +1,81 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdbool.h>
+
+// Simple state tracking
+static uint32_t move_start_time = 0;
+static bool currently_moving_left = false;
+static bool currently_moving_right = false;
+static bool left_switch_active = false;
+static bool right_switch_active = false;
+static uint32_t switch_activated_time = 0;
+
+// Simple timing
+#define MOVE_TIME_MS 2000   // 2 seconds for any movement
+#define SWITCH_HOLD_MS 1000 // Hold switch active for 1 second
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return left_switch_active;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return right_switch_active;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    currently_moving_left = true;
+    currently_moving_right = false;
+    move_start_time = HAL_GetTick();
+
+    // Don't clear switches immediately - let them stay active briefly
+}
+
+void HW_ActuatorMoveRight(void) {
+    currently_moving_left = false;
+    currently_moving_right = true;
+    move_start_time = HAL_GetTick();
+
+    // Don't clear switches immediately - let them stay active briefly
+}
+
+void HW_ActuatorStop(void) {
+    currently_moving_left = false;
+    currently_moving_right = false;
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    uint32_t elapsed = now_ms - move_start_time;
+
+    // Activate switches after movement time
+    if (currently_moving_left && elapsed >= MOVE_TIME_MS && !left_switch_active) {
+        left_switch_active = true;
+        switch_activated_time = now_ms;
+    }
+
+    if (currently_moving_right && elapsed >= MOVE_TIME_MS && !right_switch_active) {
+        right_switch_active = true;
+        switch_activated_time = now_ms;
+    }
+
+    // Clear switches after they've been active for a while AND movement stopped
+    if ((left_switch_active || right_switch_active) &&
+        !currently_moving_left && !currently_moving_right) {
+
+        if (now_ms - switch_activated_time > SWITCH_HOLD_MS) {
+            left_switch_active = false;
+            right_switch_active = false;
+        }
+    }
+}

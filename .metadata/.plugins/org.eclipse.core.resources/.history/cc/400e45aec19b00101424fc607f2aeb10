@@ -1,0 +1,58 @@
+/*
+ * hw_simulation.c - BULLETPROOF VERSION
+ */
+
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdbool.h>
+
+// Global state - keep it simple
+static uint32_t left_move_start = 0;
+static uint32_t right_move_start = 0;
+static bool left_switch_on = false;
+static bool right_switch_on = false;
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+bool HW_LeftSwitchRaw(void) {
+    // Auto-update every time it's called
+    uint32_t now = HAL_GetTick();
+    if (left_move_start > 0 && (now - left_move_start) >= 2000) {
+        left_switch_on = true;
+    }
+    return left_switch_on;
+}
+
+bool HW_RightSwitchRaw(void) {
+    // Auto-update every time it's called
+    uint32_t now = HAL_GetTick();
+    if (right_move_start > 0 && (now - right_move_start) >= 2000) {
+        right_switch_on = true;
+    }
+    return right_switch_on;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    left_move_start = HAL_GetTick();
+    right_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    right_move_start = HAL_GetTick();
+    left_move_start = 0;
+    left_switch_on = false;
+    right_switch_on = false;
+}
+
+void HW_ActuatorStop(void) {
+    // Don't change anything - switches stay active
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // This function doesn't need to do anything!
+    // The switch functions update themselves
+}

@@ -1,0 +1,97 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+/* hw_simulation.c */
+#include "homing_porting.h"
+#include "hw_simulation.h"
+
+// Simulation state
+static float sim_pos = 500.0f;           // Current position (0-1000)
+static const int SIM_MAX_POS = 1000;
+static float sim_speed_right = 0.6f;     // units per millisecond
+static float sim_speed_left = 0.4f;      // units per millisecond
+static bool sim_moving_right = false;
+static bool sim_moving_left = false;
+static uint32_t sim_last_update = 0;
+
+// HAL function mapping
+uint32_t HW_GetTickMs(void) {
+    extern uint32_t HAL_GetTick(void);
+    return HAL_GetTick();
+}
+
+// Initialize simulation
+void Sim_Init(void) {
+    sim_pos = 300.0f;  // Start at 300 out of 1000
+    sim_moving_right = false;
+    sim_moving_left = false;
+    sim_last_update = HW_GetTickMs();
+}
+
+// Set asymmetric speeds for testing
+void Sim_SetSpeeds(float right_speed, float left_speed) {
+    sim_speed_right = right_speed;
+    sim_speed_left = left_speed;
+}
+
+// Get current position (for debugging)
+int Sim_GetPosition(void) {
+    return (int)sim_pos;
+}
+
+// Hardware abstraction implementations
+bool HW_LeftSwitchRaw(void) {
+    return (sim_pos <= 0.1f);  // Switch "pressed" near left end
+}
+
+bool HW_RightSwitchRaw(void) {
+    return (sim_pos >= (SIM_MAX_POS - 0.1f));  // Switch "pressed" near right end
+}
+
+void HW_ActuatorMoveLeft(void) {
+    sim_moving_left = true;
+    sim_moving_right = false;
+}
+
+void HW_ActuatorMoveRight(void) {
+    sim_moving_right = true;
+    sim_moving_left = false;
+}
+
+void HW_ActuatorStop(void) {
+    sim_moving_left = false;
+    sim_moving_right = false;
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    // Calculate time elapsed
+    if (sim_last_update == 0) {
+        sim_last_update = now_ms;
+        return;
+    }
+
+    uint32_t dt_ms = now_ms - sim_last_update;
+    if (dt_ms == 0) return;  // No time passed
+
+    float dt = (float)dt_ms;
+
+    // Update position based on movement
+    if (sim_moving_right) {
+        sim_pos += sim_speed_right * dt;
+        if (sim_pos > SIM_MAX_POS) {
+            sim_pos = SIM_MAX_POS;
+        }
+    } else if (sim_moving_left) {
+        sim_pos -= sim_speed_left * dt;
+        if (sim_pos < 0.0f) {
+            sim_pos = 0.0f;
+        }
+    }
+
+    sim_last_update = now_ms;
+}

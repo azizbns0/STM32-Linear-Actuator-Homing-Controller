@@ -1,0 +1,11 @@
+../Core/Src/hw_simulation.c:20:10:HW_GetTickMs	8	static
+../Core/Src/hw_simulation.c:24:6:HW_LeftSwitchRaw	4	static
+../Core/Src/hw_simulation.c:28:6:HW_RightSwitchRaw	4	static
+../Core/Src/hw_simulation.c:32:6:HW_ActuatorMoveLeft	8	static
+../Core/Src/hw_simulation.c:39:6:HW_ActuatorMoveRight	8	static
+../Core/Src/hw_simulation.c:47:6:HW_ActuatorStop	4	static
+../Core/Src/hw_simulation.c:51:6:HW_SimulationUpdate	24	static
+../Core/Src/hw_simulation.c:66:6:HW_ClearSwitches	4	static
+../Core/Src/hw_simulation.c:74:10:Debug_GetRightMoveStart	4	static
+../Core/Src/hw_simulation.c:78:6:Debug_GetRightSwitch	4	static
+../Core/Src/hw_simulation.c:82:10:Debug_GetElapsedRight	8	static

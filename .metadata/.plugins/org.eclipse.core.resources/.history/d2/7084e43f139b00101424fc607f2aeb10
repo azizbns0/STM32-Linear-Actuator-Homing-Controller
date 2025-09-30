@@ -1,0 +1,203 @@
+/*
+ * homing.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+
+// homing.c
+#include "homing.h"
+#include "homing_porting.h"
+#include <stdlib.h>
+
+#ifndef HOMING_DEFAULT_TIMEOUT_MS
+#define HOMING_DEFAULT_TIMEOUT_MS 30000U
+#endif
+
+#ifndef HOMING_DEFAULT_DEBOUNCE_MS
+#define HOMING_DEFAULT_DEBOUNCE_MS 20U
+#endif
+
+// simple debouncer struct
+typedef struct {
+    bool stable;
+    bool last_raw;
+    uint32_t last_change;
+} Debounce_t;
+
+static Debounce_t left_db;
+static Debounce_t right_db;
+
+static bool DebounceUpdate(Debounce_t *db, bool raw, uint32_t now, uint32_t debounce_ms) {
+    if (raw != db->last_raw) {
+        db->last_raw = raw;
+        db->last_change = now;
+    } else {
+        if ((now - db->last_change) >= debounce_ms) {
+            db->stable = raw;
+        }
+    }
+    return db->stable;
+}
+
+void Homing_Init(HomingCtx_t *ctx) {
+    ctx->state = HOMING_STATE_IDLE;
+    ctx->start_tick = 0;
+    ctx->t_lr_ms = 0;
+    ctx->t_rl_ms = 0;
+    ctx->middle_time_ms = 0;
+    ctx->timeout_ms = HOMING_DEFAULT_TIMEOUT_MS;
+    ctx->debounce_ms = HOMING_DEFAULT_DEBOUNCE_MS;
+    ctx->error_code = 0;
+    left_db.stable = left_db.last_raw = false; left_db.last_change = 0;
+    right_db.stable = right_db.last_raw = false; right_db.last_change = 0;
+}
+
+void Homing_Start(HomingCtx_t *ctx) {
+    ctx->t_lr_ms = ctx->t_rl_ms = ctx->middle_time_ms = 0;
+    ctx->error_code = 0;
+    ctx->state = HOMING_STATE_MOVE_TO_LEFT;
+    ctx->start_tick = HW_GetTickMs();
+    HW_ActuatorMoveLeft();
+}
+
+// helper: read debounced switches
+static bool LeftPressed(HomingCtx_t *ctx, uint32_t now) {
+    bool raw = HW_LeftSwitchRaw();
+    return DebounceUpdate(&left_db, raw, now, ctx->debounce_ms);
+}
+static bool RightPressed(HomingCtx_t *ctx, uint32_t now) {
+    bool raw = HW_RightSwitchRaw();
+    return DebounceUpdate(&right_db, raw, now, ctx->debounce_ms);
+}
+
+void Homing_Step(HomingCtx_t *ctx) {
+    uint32_t now = HW_GetTickMs();
+
+    // optional simulation/hw update hook
+    HW_SimulationUpdate(now);
+
+    // Update debounced states
+    (void)LeftPressed(ctx, now);
+    (void)RightPressed(ctx, now);
+
+    switch (ctx->state) {
+        case HOMING_STATE_IDLE:
+            // waiting for start
+            break;
+
+        case HOMING_STATE_MOVE_TO_LEFT:
+            // Move left until left switch pressed
+            if (LeftPressed(ctx, now)) {
+                HW_ActuatorStop();
+                // small safety pause implemented by setting start tick and waiting 50ms while stopped
+                ctx->start_tick = now;
+                // next: move right and measure time
+                ctx->state = HOMING_STATE_MOVE_TO_RIGHT_MEASURE;
+                // start moving right and record time when leaving left
+                // leave a tiny pause: we will start moving after a few ms to model safe reversal
+                // store that we should start moving after pause: use start_tick as marker
+                // implement non-blocking delay of 30 ms before starting right move
+            }
+            // timeout
+            if ((now - ctx->start_tick) > ctx->timeout_ms && ctx->state == HOMING_STATE_MOVE_TO_LEFT) {
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 1; // left not found
+                HW_ActuatorStop();
+            }
+            // If we just turned to MOVE_TO_RIGHT_MEASURE then the movement start is handled below
+            if (ctx->state == HOMING_STATE_MOVE_TO_RIGHT_MEASURE && (now - ctx->start_tick) >= 30) {
+                // start the measured run left->right
+                ctx->start_tick = now; // timer for left->right
+                HW_ActuatorMoveRight();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_RIGHT_MEASURE:
+            if (RightPressed(ctx, now)) {
+                // reached right end: record left->right time
+                HW_ActuatorStop();
+                ctx->t_lr_ms = now - ctx->start_tick;
+                // safety pause before reversing
+                ctx->start_tick = now;
+                ctx->state = HOMING_STATE_MOVE_TO_LEFT_MEASURE;
+            }
+            if ((now - ctx->start_tick) > ctx->timeout_ms && ctx->state == HOMING_STATE_MOVE_TO_RIGHT_MEASURE) {
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 2; // right not found
+                HW_ActuatorStop();
+            }
+            // start reverse after small pause
+            if (ctx->state == HOMING_STATE_MOVE_TO_LEFT_MEASURE && (now - ctx->start_tick) >= 30 && ctx->t_lr_ms != 0) {
+                ctx->start_tick = now; // timer for right->left
+                HW_ActuatorMoveLeft();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_LEFT_MEASURE:
+            if (LeftPressed(ctx, now)) {
+                HW_ActuatorStop();
+                ctx->t_rl_ms = now - ctx->start_tick;
+                // now we are back at left end, compute middle time
+                // time to middle from left moving right = t_lr_ms / 2
+                if (ctx->t_lr_ms == 0) {
+                    ctx->state = HOMING_STATE_ERROR;
+                    ctx->error_code = 3;
+                    break;
+                }
+                ctx->middle_time_ms = ctx->t_lr_ms / 2;
+                // small safety pause
+                ctx->start_tick = now;
+                ctx->state = HOMING_STATE_MOVE_TO_MIDDLE;
+            }
+            if ((now - ctx->start_tick) > ctx->timeout_ms && ctx->state == HOMING_STATE_MOVE_TO_LEFT_MEASURE) {
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 4; // left not reached on measure back
+                HW_ActuatorStop();
+            }
+            // start moving towards middle after pause
+            if (ctx->state == HOMING_STATE_MOVE_TO_MIDDLE && (now - ctx->start_tick) >= 30) {
+                ctx->start_tick = now;
+                // move right for middle_time_ms
+                HW_ActuatorMoveRight();
+            }
+            break;
+
+        case HOMING_STATE_MOVE_TO_MIDDLE:
+            // if we hit right or left unexpectedly -> stop and error or handle
+            if (LeftPressed(ctx, now) || RightPressed(ctx, now)) {
+                // if a switch pressed while heading to middle, stop and error
+                HW_ActuatorStop();
+                // but if RightPressed() occurs earlier than expected it could be mechanical issue; mark error
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 5;
+                break;
+            }
+            if ((now - ctx->start_tick) >= ctx->middle_time_ms) {
+                HW_ActuatorStop();
+                ctx->state = HOMING_STATE_DONE;
+            }
+            if ((now - ctx->start_tick) > (ctx->timeout_ms * 2)) {
+                ctx->state = HOMING_STATE_ERROR;
+                ctx->error_code = 6; // too long going to middle
+                HW_ActuatorStop();
+            }
+            break;
+
+        case HOMING_STATE_DONE:
+            // stay here until re-start
+            break;
+
+        case HOMING_STATE_ERROR:
+            // stay here until user resets / restart
+            break;
+
+        default:
+            break;
+    }
+}
+
+HomingState_t Homing_GetState(HomingCtx_t *ctx) {
+    return ctx->state;
+}

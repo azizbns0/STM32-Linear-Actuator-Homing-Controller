@@ -1,0 +1,32 @@
+/*
+ * homing_real_hardware.c - FIXED VERSION
+ */
+
+#include "homing_porting.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+// Time-based simulation (much more reliable than position-based)
+static struct {
+    uint32_t move_start_time;
+    bool moving_left;
+    bool moving_right;
+    bool left_switch_reached;
+    bool right_switch_reached;
+
+    // Timing parameters
+    uint32_t time_to_left_ms;    // Time to reach left switch
+    uint32_t time_to_right_ms;   // Time to reach right switch from left
+    uint32_t time_back_to_left_ms; // Time to return to left from right
+} sim = {
+    // FIX: Initialize all members explicitly for robust startup
+    .move_start_time = 0,
+    .moving_left = false,
+    .moving_right = false,
+    .left_switch_reached = false,
+    .right_switch_reached = false,
+    .time_to_left_ms = 2000,     // 2 seconds to reach left
+    .time_to_right_ms = 4000,    // 4 seconds left-to-right (asymmetric test)
+    .time_back_to_left_ms = 3000 // 3 seconds right-to-left
+};
+// ... rest of homing_real_hardware.c remains the same ...

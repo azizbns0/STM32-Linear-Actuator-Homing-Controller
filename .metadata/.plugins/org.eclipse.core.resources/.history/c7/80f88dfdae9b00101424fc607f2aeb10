@@ -1,0 +1,102 @@
+/*
+ * homing_real_hardware.c
+ *
+ *  Created on: Sep 27, 2025
+ *      Author: azizb
+ */
+
+#include "homing_porting.h"
+#include "main.h"
+#include "stm32f4xx_hal.h"
+
+// Simulation state
+static struct {
+    float position;           // 0.0 = left end, 100.0 = right end
+    float speed_right;        // units per millisecond when moving right
+    float speed_left;         // units per millisecond when moving left
+    bool moving_left;
+    bool moving_right;
+    uint32_t last_update;
+
+    // Switch positions
+    float left_switch_pos;    // Switch triggers when position <= this
+    float right_switch_pos;   // Switch triggers when position >= this
+
+    bool test_asymmetric;     // Enable asymmetric speed test
+} sim = {
+    .position = 50.0f,        // Start in middle
+    .speed_right = 0.03f,     // Right: 3 seconds to cross full range
+    .speed_left = 0.03f,      // Left: 3 seconds to cross full range
+    .moving_left = false,
+    .moving_right = false,
+    .last_update = 0,
+    .left_switch_pos = 5.0f,  // Left switch at 5%
+    .right_switch_pos = 95.0f,// Right switch at 95%
+    .test_asymmetric = true   // Test asymmetric speeds (bonus feature)
+};
+
+uint32_t HW_GetTickMs(void) {
+    return HAL_GetTick();
+}
+
+void HW_SimulationUpdate(uint32_t now_ms) {
+    if (sim.last_update == 0) {
+        sim.last_update = now_ms;
+
+        // Setup asymmetric speeds for bonus testing
+        if (sim.test_asymmetric) {
+            sim.speed_right = 0.05f;  // Right faster: 2 seconds
+            sim.speed_left = 0.025f;  // Left slower: 4 seconds
+        }
+        return;
+    }
+
+    uint32_t dt = now_ms - sim.last_update;
+    sim.last_update = now_ms;
+
+    // Update position based on movement
+    if (sim.moving_left && !sim.moving_right) {
+        sim.position -= sim.speed_left * dt;
+        if (sim.position < 0) sim.position = 0;
+    } else if (sim.moving_right && !sim.moving_left) {
+        sim.position += sim.speed_right * dt;
+        if (sim.position > 100) sim.position = 100;
+    }
+}
+
+bool HW_LeftSwitchRaw(void) {
+    return sim.position <= sim.left_switch_pos;
+}
+
+bool HW_RightSwitchRaw(void) {
+    return sim.position >= sim.right_switch_pos;
+}
+
+void HW_ActuatorMoveLeft(void) {
+    sim.moving_left = true;
+    sim.moving_right = false;
+    // Optional: Set PE10 high, PE11 low for external indication
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_RESET);
+}
+
+void HW_ActuatorMoveRight(void) {
+    sim.moving_left = false;
+    sim.moving_right = true;
+    // Optional: Set PE10 low, PE11 high for external indication
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_SET);
+}
+
+void HW_ActuatorStop(void) {
+    sim.moving_left = false;
+    sim.moving_right = false;
+    // Optional: Both outputs low
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_RESET);
+}
+
+// Debug function to get current position (optional)
+float Sim_GetPosition(void) {
+    return sim.position;
+}

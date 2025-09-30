@@ -1,0 +1,81 @@
+/*
+ * hw_simulation.c
+ *
+ *  Created on: Sep 25, 2025
+ *      Author: azizb
+ */
+
+/*
+ * hw_simulation.c
+ */
+
+#include "homing_porting.h"
+#include "stm32f4xx_hal.h"
+#include <stdbool.h>
+
+// Simulation state
+static uint32_t move_start = 0;
+static bool moving_left = false;
+static bool moving_right = false;
+static bool left_switch = false;
+static bool right_switch = false;
+static bool returning_left = false;  // track if we are on the return trip
+
+// Travel times (tweak if needed)
+#define TIME_TO_LEFT_MS       2000   // 2s to reach left switch initially
+#define TIME_TO_RIGHT_MS      2000   // 2s to reach right switch
+#define TIME_BACK_TO_LEFT_MS  2000   // 2s to return to left switch
+
+uint32_t HW_GetTickMs(void) { return HAL_GetTick(); }
+
+bool HW_LeftSwitchRaw(void)  { return left_switch; }
+bool HW_RightSwitchRaw(void) { return right_switch; }
+
+void HW_ActuatorMoveLeft(void) {
+    moving_left = true;
+    moving_right = false;
+    move_start = HAL_GetTick();
+    left_switch = right_switch = false;
+    // If we are going left after right, mark return phase
+    returning_left = right_switch;
+}
+
+void HW_ActuatorMoveRight(void) {
+    moving_left = false;
+    moving_right = true;
+    move_start = HAL_GetTick();
+    left_switch = right_switch = false;
+    returning_left = false; // normal trip to right
+}
+
+void HW_ActuatorStop(void) {
+    moving_left = false;
+    moving_right = false;
+}
+
+void HW_SimulationUpdate(uint32_t now) {
+    uint32_t elapsed = now - move_start;
+
+    if (moving_left) {
+        if (!returning_left) {
+            // First trip to left
+            if (elapsed >= TIME_TO_LEFT_MS) {
+                left_switch = true;
+                moving_left = false;
+            }
+        } else {
+            // Returning back from right
+            if (elapsed >= TIME_BACK_TO_LEFT_MS) {
+                left_switch = true;
+                moving_left = false;
+            }
+        }
+    }
+
+    if (moving_right) {
+        if (elapsed >= TIME_TO_RIGHT_MS) {
+            right_switch = true;
+            moving_right = false;
+        }
+    }
+}
